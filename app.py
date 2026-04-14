@@ -157,8 +157,8 @@ plt.xticks(rotation=90)
 
 st.pyplot(fig)
 
-    # Explanation
-    def generate_explanation(before, after):
+# Explanation Function
+def generate_explanation(before, after):
 
     if after < before:
         result = "Bias was successfully reduced."
@@ -185,6 +185,17 @@ Suggested Improvements:
 """
 
     return explanation
+
+
+# Show Explanation
+st.subheader("AI Explanation")
+
+explanation = generate_explanation(
+    before,
+    after
+)
+
+st.write(explanation)
 report_text = f"""
 Bias Report
 
