@@ -214,6 +214,7 @@ def apply_theme(dark_mode: bool) -> None:
             padding: 1.15rem 1.2rem;
             box-shadow: var(--fc-shadow);
             backdrop-filter: blur(12px);
+            animation: fadeUp 0.55s ease both;
         }}
 
         .premium-card h3 {{
@@ -236,6 +237,94 @@ def apply_theme(dark_mode: bool) -> None:
             margin: 1.4rem 0 0.65rem 0;
         }}
 
+        .hero-strip {{
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 0.9rem;
+            margin-bottom: 1.15rem;
+        }}
+
+        .hero-stat {{
+            background: linear-gradient(180deg, var(--fc-surface) 0%, var(--fc-surface-strong) 100%);
+            border: 1px solid var(--fc-border);
+            border-radius: 20px;
+            padding: 1rem 1.1rem;
+            box-shadow: var(--fc-shadow);
+            animation: fadeUp 0.65s ease both;
+        }}
+
+        .hero-stat-label {{
+            color: var(--fc-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            font-size: 0.74rem;
+            font-weight: 700;
+            margin-bottom: 0.45rem;
+        }}
+
+        .hero-stat-value {{
+            color: var(--fc-text);
+            font-family: "Space Grotesk", sans-serif;
+            font-size: 1.45rem;
+            font-weight: 700;
+            line-height: 1.1;
+        }}
+
+        .hero-stat-note {{
+            color: var(--fc-muted);
+            font-size: 0.88rem;
+            margin-top: 0.35rem;
+        }}
+
+        .feature-pill-row {{
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.55rem;
+            margin-top: 1rem;
+        }}
+
+        .feature-pill {{
+            padding: 0.45rem 0.8rem;
+            border-radius: 999px;
+            background: var(--fc-accent-soft);
+            border: 1px solid var(--fc-border);
+            color: var(--fc-text);
+            font-size: 0.84rem;
+            font-weight: 600;
+        }}
+
+        .stTabs [data-baseweb="tab-list"] {{
+            gap: 0.6rem;
+            background: transparent;
+            padding: 0;
+            margin-bottom: 1rem;
+        }}
+
+        .stTabs [data-baseweb="tab"] {{
+            background: var(--fc-surface);
+            border: 1px solid var(--fc-border);
+            border-radius: 999px;
+            padding: 0.65rem 1rem;
+            color: var(--fc-muted);
+        }}
+
+        .stTabs [aria-selected="true"] {{
+            background: linear-gradient(135deg, var(--fc-accent) 0%, var(--fc-accent-2) 100%);
+            color: white !important;
+            border-color: transparent;
+        }}
+
+        @keyframes fadeUp {{
+            from {{
+                opacity: 0;
+                transform: translateY(10px);
+            }}
+            to {{
+                opacity: 1;
+                transform: translateY(0);
+            }}
+        }}
+
         @media (max-width: 900px) {{
             .premium-hero {{
                 padding: 1.35rem;
@@ -244,6 +333,16 @@ def apply_theme(dark_mode: bool) -> None:
 
             .premium-title {{
                 font-size: 2.15rem;
+            }}
+
+            .hero-strip {{
+                grid-template-columns: 1fr 1fr;
+            }}
+        }}
+
+        @media (max-width: 640px) {{
+            .hero-strip {{
+                grid-template-columns: 1fr;
             }}
         }}
         </style>
@@ -429,6 +528,12 @@ def render_hero() -> None:
                 Upload a dataset, train a model, detect demographic bias, compare mitigation impact,
                 and export a report from a cleaner, more polished fairness dashboard.
             </p>
+            <div class="feature-pill-row">
+                <div class="feature-pill">Bias Detection</div>
+                <div class="feature-pill">Fairness Mitigation</div>
+                <div class="feature-pill">Model Comparison</div>
+                <div class="feature-pill">PDF Reporting</div>
+            </div>
         </div>
         """,
         unsafe_allow_html=True,
@@ -473,6 +578,37 @@ def section_label(text: str) -> None:
     st.markdown(f'<div class="section-label">{text}</div>', unsafe_allow_html=True)
 
 
+def render_stat_strip(row_count: int, column_count: int, model_name: str, sensitive_column: Optional[str]) -> None:
+    sensitive_text = sensitive_column if sensitive_column else "Not selected"
+    st.markdown(
+        f"""
+        <div class="hero-strip">
+            <div class="hero-stat">
+                <div class="hero-stat-label">Rows</div>
+                <div class="hero-stat-value">{row_count}</div>
+                <div class="hero-stat-note">Loaded for analysis</div>
+            </div>
+            <div class="hero-stat">
+                <div class="hero-stat-label">Columns</div>
+                <div class="hero-stat-value">{column_count}</div>
+                <div class="hero-stat-note">Available fields</div>
+            </div>
+            <div class="hero-stat">
+                <div class="hero-stat-label">Model</div>
+                <div class="hero-stat-value">{model_name}</div>
+                <div class="hero-stat-note">Current training strategy</div>
+            </div>
+            <div class="hero-stat">
+                <div class="hero-stat-label">Sensitive Feature</div>
+                <div class="hero-stat-value">{sensitive_text}</div>
+                <div class="hero-stat-note">Mitigation focus</div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 apply_theme(False)
 
 dark_mode = st.sidebar.toggle("Dark Mode", value=False)
@@ -507,24 +643,7 @@ if raw_data.empty:
     st.stop()
 
 data = sanitize_dataframe(raw_data)
-
-section_label("Dataset")
-st.subheader("Dataset Overview")
-left, right = st.columns(2)
-with left:
-    st.dataframe(data.head(), use_container_width=True)
-with right:
-    st.markdown(
-        f"""
-        <div class="premium-card">
-            <h3>Dataset Snapshot</h3>
-            <p><strong>Rows:</strong> {data.shape[0]}</p>
-            <p><strong>Columns:</strong> {data.shape[1]}</p>
-            <p><strong>Fields:</strong> {", ".join(list(data.columns))}</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+render_stat_strip(data.shape[0], data.shape[1], model_choice, None)
 
 if data.shape[1] < 2:
     st.error("The dataset must have at least one feature column and one target column.")
@@ -537,6 +656,8 @@ sensitive_column = choose_sensitive_column(feature_columns)
 if sensitive_column is None:
     st.error("Please upload a dataset with at least one feature column.")
     st.stop()
+
+render_stat_strip(data.shape[0], data.shape[1], model_choice, sensitive_column)
 
 encoded_data = data.copy()
 for col in encoded_data.columns:
@@ -636,63 +757,12 @@ after = abs(float(new_bias))
 fairness_score = max(0.0, 1 - before)
 mitigation_delta = before - after
 
-section_label("Analysis")
-st.subheader("Bias Dashboard")
-metric_1, metric_2, metric_3 = st.columns(3)
-metric_1.metric("Most biased column", most_biased_column)
-metric_2.metric("Bias score", f"{before:.3f}")
-metric_3.metric("Fairness score", f"{fairness_score:.3f}")
-
-detail_1, detail_2, detail_3 = st.columns(3)
-detail_1.markdown(
-    f"""
-    <div class="premium-card">
-        <h3>Mitigation Focus</h3>
-        <p>{sensitive_column}</p>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-detail_2.markdown(
-    f"""
-    <div class="premium-card">
-        <h3>Bias After Mitigation</h3>
-        <p>{after:.3f}</p>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-detail_3.markdown(
-    f"""
-    <div class="premium-card">
-        <h3>Bias Improvement</h3>
-        <p>{mitigation_delta:.3f}</p>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
-
 bias_df = pd.DataFrame(bias_results.items(), columns=["Column", "Bias Score"]).sort_values(
     by="Bias Score",
     ascending=False,
 )
 
-section_label("Breakdown")
-st.subheader("Top Biased Columns")
-st.dataframe(bias_df, use_container_width=True)
-
-st.subheader("Bias Distribution")
-render_bar_chart(bias_df)
-
-if show_heatmap:
-    section_label("Relationships")
-    st.subheader("Correlation Heatmap")
-    render_heatmap(encoded_data)
-
-section_label("Narrative")
-st.subheader("AI Insights")
 ai_text = generate_ai_insight(sensitive_column, before, after)
-st.info(ai_text)
 
 report_bytes = build_pdf_report(
     dataset_shape=data.shape,
@@ -705,9 +775,114 @@ report_bytes = build_pdf_report(
     insight_text=ai_text,
 )
 
-st.download_button(
-    label="Download PDF Report",
-    data=report_bytes,
-    file_name="faircheck_ai_report.pdf",
-    mime="application/pdf",
-)
+overview_tab, fairness_tab, report_tab = st.tabs(["Overview", "Fairness Analysis", "Report Center"])
+
+with overview_tab:
+    section_label("Dataset")
+    st.subheader("Dataset Overview")
+    left, right = st.columns([1.3, 1])
+    with left:
+        st.dataframe(data.head(), use_container_width=True)
+    with right:
+        st.markdown(
+            f"""
+            <div class="premium-card">
+                <h3>Dataset Snapshot</h3>
+                <p><strong>Rows:</strong> {data.shape[0]}</p>
+                <p><strong>Columns:</strong> {data.shape[1]}</p>
+                <p><strong>Target:</strong> {target_column}</p>
+                <p><strong>Selected Model:</strong> {model_choice}</p>
+                <p><strong>Fields:</strong> {", ".join(list(data.columns))}</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    section_label("Performance")
+    st.subheader("Model Snapshot")
+    metric_1, metric_2, metric_3 = st.columns(3)
+    metric_1.metric("Most biased column", most_biased_column)
+    metric_2.metric("Bias score", f"{before:.3f}")
+    metric_3.metric("Fairness score", f"{fairness_score:.3f}")
+
+    detail_1, detail_2, detail_3 = st.columns(3)
+    detail_1.markdown(
+        f"""
+        <div class="premium-card">
+            <h3>Mitigation Focus</h3>
+            <p>{sensitive_column}</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    detail_2.markdown(
+        f"""
+        <div class="premium-card">
+            <h3>Bias After Mitigation</h3>
+            <p>{after:.3f}</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    detail_3.markdown(
+        f"""
+        <div class="premium-card">
+            <h3>Bias Improvement</h3>
+            <p>{mitigation_delta:.3f}</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+with fairness_tab:
+    section_label("Breakdown")
+    st.subheader("Top Biased Columns")
+    st.dataframe(bias_df, use_container_width=True)
+
+    st.subheader("Bias Distribution")
+    render_bar_chart(bias_df)
+
+    if show_heatmap:
+        section_label("Relationships")
+        st.subheader("Correlation Heatmap")
+        render_heatmap(encoded_data)
+
+    section_label("Narrative")
+    st.subheader("AI Insights")
+    st.info(ai_text)
+
+with report_tab:
+    section_label("Export")
+    st.subheader("Report Center")
+    report_left, report_right = st.columns([1.1, 0.9])
+    with report_left:
+        st.markdown(
+            f"""
+            <div class="premium-card">
+                <h3>Executive Summary</h3>
+                <p><strong>Target column:</strong> {target_column}</p>
+                <p><strong>Model:</strong> {model_choice}</p>
+                <p><strong>Accuracy:</strong> {accuracy:.3f if accuracy is not None else 'Not calculated'}</p>
+                <p><strong>Most biased column:</strong> {most_biased_column}</p>
+                <p><strong>Bias before mitigation:</strong> {before:.3f}</p>
+                <p><strong>Bias after mitigation:</strong> {after:.3f}</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    with report_right:
+        st.markdown(
+            """
+            <div class="premium-card">
+                <h3>Ready to Share</h3>
+                <p>Export a concise PDF summary for demos, case studies, classroom use, or internal reviews.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.download_button(
+            label="Download PDF Report",
+            data=report_bytes,
+            file_name="faircheck_ai_report.pdf",
+            mime="application/pdf",
+        )
