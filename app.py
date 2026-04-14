@@ -144,7 +144,7 @@ st.subheader("Bias Severity")
 st.write(severity)
 
     # Visualization
-    st.subheader("Bias Visualization")
+st.subheader("Bias Visualization")
 
     fig, ax = plt.subplots()
 
