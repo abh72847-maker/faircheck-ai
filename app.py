@@ -146,7 +146,7 @@ st.write(severity)
     # Visualization
 st.subheader("Bias Visualization")
 
-    fig, ax = plt.subplots()
+fig, ax = plt.subplots()
 
     ax.bar(
         bias_results.keys(),
