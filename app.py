@@ -32,24 +32,46 @@ st.set_page_config(
 
 
 # =========================
+# DARK MODE
+# =========================
+
+dark_mode = st.sidebar.toggle("🌙 Dark Mode")
+
+if dark_mode:
+    st.markdown("""
+    <style>
+    .stApp {
+        background-color: #0e1117;
+        color: white;
+    }
+
+    section[data-testid="stSidebar"] {
+        background-color: #161b22;
+    }
+
+    div[data-testid="metric-container"] {
+        background-color: #1f2937;
+        border-radius: 10px;
+        padding: 10px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+
+# =========================
 # TITLE
 # =========================
 
-st.title("⚖️ FairCheck AI — Smart Bias Detection Dashboard")
+st.title("⚖️ FairCheck AI — Smart Bias Dashboard")
 
 st.markdown(
-"""
-### Detect Bias • Improve Fairness • Generate Reports  
-Upload datasets and analyze fairness using AI models.
-"""
+"### Detect Bias • Improve Fairness • Generate Reports"
 )
 
 
 # =========================
 # SIDEBAR
 # =========================
-
-st.sidebar.title("⚙️ Controls")
 
 uploaded_file = st.sidebar.file_uploader(
     "Upload CSV Dataset",
@@ -73,67 +95,52 @@ show_accuracy = st.sidebar.checkbox(
 
 
 # =========================
-# PDF FUNCTION
+# AI INSIGHT FUNCTION ⭐
 # =========================
 
-def create_pdf_report(
+def generate_ai_insight(
     most_biased_column,
     before,
-    after,
-    severity
+    after
 ):
 
-    buffer = io.BytesIO()
+    if after < before:
+        status = "Bias reduced successfully."
+    else:
+        status = "Bias reduction insufficient."
 
-    doc = SimpleDocTemplate(buffer)
+    insight = f"""
+📊 AI Insight Summary
 
-    styles = getSampleStyleSheet()
+Most Biased Column:
+➡️ {most_biased_column}
 
-    story = []
+Bias Before:
+{before:.3f}
 
-    story.append(
-        Paragraph(
-            "FairCheck AI Bias Report",
-            styles["Title"]
-        )
-    )
+Bias After:
+{after:.3f}
 
-    story.append(Spacer(1, 12))
+Status:
+{status}
 
-    content = f"""
-    <b>Most Biased Column:</b> {most_biased_column}<br/><br/>
+🔍 Why This Matters:
+Bias can lead to unfair decisions
+for certain groups.
 
-    <b>Bias Before:</b> {before:.3f}<br/><br/>
+🛠 Suggested Fixes:
 
-    <b>Bias After:</b> {after:.3f}<br/><br/>
+1️⃣ Balance dataset samples  
+2️⃣ Remove biased features  
+3️⃣ Use fairness-aware models  
+4️⃣ Retrain model regularly  
+"""
 
-    <b>Severity:</b> {severity}<br/><br/>
-
-    <b>Fairness Score:</b> {1-before:.3f}<br/><br/>
-
-    <b>Recommendations:</b><br/>
-    1. Balance dataset samples<br/>
-    2. Review sensitive columns<br/>
-    3. Apply fairness models<br/>
-    4. Monitor fairness regularly<br/>
-    """
-
-    story.append(
-        Paragraph(
-            content,
-            styles["BodyText"]
-        )
-    )
-
-    doc.build(story)
-
-    buffer.seek(0)
-
-    return buffer
+    return insight
 
 
 # =========================
-# MAIN LOGIC
+# MAIN
 # =========================
 
 if uploaded_file:
@@ -152,9 +159,7 @@ if uploaded_file:
         st.write("Columns:", list(data.columns))
 
 
-    # =========================
     # CLEANING
-    # =========================
 
     data = data.dropna()
 
@@ -169,14 +174,13 @@ if uploaded_file:
     for col in data.columns:
 
         if data[col].dtype == "object":
+
             data[col] = le.fit_transform(
                 data[col]
             )
 
 
-    # =========================
     # TARGET
-    # =========================
 
     target_column = data.columns[-1]
 
@@ -196,9 +200,7 @@ if uploaded_file:
     )
 
 
-    # =========================
-    # MODEL SELECTION ⭐
-    # =========================
+    # MODEL SELECTION
 
     if model_choice == "Logistic Regression":
 
@@ -225,9 +227,7 @@ if uploaded_file:
     )
 
 
-    # =========================
     # ACCURACY
-    # =========================
 
     if show_accuracy:
 
@@ -236,16 +236,12 @@ if uploaded_file:
             predictions
         )
 
-        st.subheader("📈 Model Accuracy")
-
         st.success(
             f"Accuracy: {accuracy:.2f}"
         )
 
 
-    # =========================
     # BIAS DETECTION
-    # =========================
 
     bias_results = {}
 
@@ -272,9 +268,7 @@ if uploaded_file:
     )
 
 
-    # =========================
-    # BIAS MITIGATION
-    # =========================
+    # MITIGATION
 
     mitigator = ExponentiatedGradient(
         LogisticRegression(max_iter=1000),
@@ -312,32 +306,12 @@ if uploaded_file:
 
 
     before = abs(original_bias)
-
     after = abs(new_bias)
 
     fairness_score = 1 - before
 
 
-    # =========================
-    # SEVERITY
-    # =========================
-
-    if before > 0.3:
-
-        severity = "🔴 High Bias"
-
-    elif before > 0.1:
-
-        severity = "🟡 Medium Bias"
-
-    else:
-
-        severity = "🟢 Low Bias"
-
-
-    # =========================
-    # DASHBOARD CARDS ⭐
-    # =========================
+    # DASHBOARD
 
     st.subheader("📊 Bias Dashboard")
 
@@ -359,41 +333,12 @@ if uploaded_file:
     )
 
 
-    # =========================
-    # ALERTS
-    # =========================
-
-    if before > 0.3:
-
-        st.error(
-            "🚨 High Bias Detected!"
-        )
-
-    elif before > 0.1:
-
-        st.warning(
-            "⚠️ Medium Bias Detected!"
-        )
-
-    else:
-
-        st.success(
-            "✅ Low Bias Detected!"
-        )
-
-
-    # =========================
-    # TOP BIAS TABLE
-    # =========================
-
-    st.subheader("📋 Top Biased Columns")
+    # BIAS TABLE
 
     bias_df = pd.DataFrame(
         bias_results.items(),
-        columns=[
-            "Column",
-            "Bias Score"
-        ]
+        columns=["Column",
+                 "Bias Score"]
     )
 
     bias_df = bias_df.sort_values(
@@ -401,12 +346,12 @@ if uploaded_file:
         ascending=False
     )
 
+    st.subheader("📋 Top Biased Columns")
+
     st.dataframe(bias_df)
 
 
-    # =========================
-    # BIAS CHART
-    # =========================
+    # CHART
 
     st.subheader("📈 Bias Distribution")
 
@@ -420,9 +365,7 @@ if uploaded_file:
     st.pyplot(fig)
 
 
-    # =========================
     # HEATMAP
-    # =========================
 
     if show_heatmap:
 
@@ -440,50 +383,16 @@ if uploaded_file:
         st.pyplot(fig2)
 
 
-    # =========================
-    # EXPLANATION ⭐
-    # =========================
+    # AI INSIGHTS ⭐
 
     st.subheader(
-        "🧠 Bias Explanation & Fixes"
+        "🧠 AI Insights Generator"
     )
 
-    explanation = f"""
-Most bias detected in:
-
-➡️ {most_biased_column}
-
-Bias Before:
-{before:.3f}
-
-Bias After:
-{after:.3f}
-
-Recommended Fixes:
-
-1️⃣ Balance Dataset  
-2️⃣ Remove biased feature  
-3️⃣ Use fairness algorithms  
-4️⃣ Monitor fairness regularly  
-"""
-
-    st.info(explanation)
-
-
-    # =========================
-    # PDF DOWNLOAD ⭐
-    # =========================
-
-    pdf_file = create_pdf_report(
+    ai_text = generate_ai_insight(
         most_biased_column,
         before,
-        after,
-        severity
+        after
     )
 
-    st.download_button(
-        label="📄 Download Full PDF Report",
-        data=pdf_file,
-        file_name="FairCheck_Bias_Report.pdf",
-        mime="application/pdf"
-    )
+    st.info(ai_text)
