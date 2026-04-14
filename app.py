@@ -125,8 +125,23 @@ if uploaded_file:
 
     st.subheader("Bias Comparison")
 
-    st.write("Before Bias:", abs(original_bias))
-    st.write("After Bias:", abs(new_bias))
+before = abs(original_bias)
+after = abs(new_bias)
+
+st.write("Before Bias:", before)
+st.write("After Bias:", after)
+
+# Bias severity
+if before > 0.3:
+    severity = "🔴 High Bias"
+elif before > 0.1:
+    severity = "🟡 Medium Bias"
+else:
+    severity = "🟢 Low Bias"
+
+st.subheader("Bias Severity")
+
+st.write(severity)
 
     # Visualization
     st.subheader("Bias Visualization")
@@ -145,23 +160,49 @@ if uploaded_file:
     # Explanation
     def generate_explanation(before, after):
 
-        return f"""
-Bias decreased from {before} to {after}.
+    if after < before:
+        result = "Bias was successfully reduced."
+    else:
+        result = "Bias reduction needs improvement."
 
-This means the model became more fair.
+    explanation = f"""
+📊 Bias Explanation
 
-Bias matters because unfair decisions
-can harm specific groups.
+Before Bias: {before}
+After Bias: {after}
 
-Suggested Fix:
-Balance dataset and monitor fairness.
+Result:
+{result}
+
+Why Bias Matters:
+AI systems with bias may unfairly
+treat certain groups.
+
+Suggested Improvements:
+• Balance dataset
+• Monitor sensitive features
+• Retrain models regularly
 """
 
-    explanation = generate_explanation(
-        abs(original_bias),
-        abs(new_bias)
-    )
+    return explanation
+report_text = f"""
+Bias Report
 
-    st.subheader("AI Explanation")
+Most Biased Column: {most_biased_column}
 
-    st.write(explanation)
+Before Bias: {before}
+After Bias: {after}
+
+Bias Severity: {severity}
+
+Explanation:
+Bias decreased after mitigation,
+meaning the model became more fair.
+"""
+
+st.download_button(
+    label="📥 Download Bias Report",
+    data=report_text,
+    file_name="bias_report.txt",
+    mime="text/plain"
+)
