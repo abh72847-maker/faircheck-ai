@@ -143,19 +143,19 @@ st.subheader("Bias Severity")
 
 st.write(severity)
 
-    # Visualization
+# Visualization
 st.subheader("Bias Visualization")
 
 fig, ax = plt.subplots()
 
-    ax.bar(
-        bias_results.keys(),
-        bias_results.values()
-    )
+ax.bar(
+    bias_results.keys(),
+    bias_results.values()
+)
 
-    plt.xticks(rotation=90)
+plt.xticks(rotation=90)
 
-    st.pyplot(fig)
+st.pyplot(fig)
 
     # Explanation
     def generate_explanation(before, after):
