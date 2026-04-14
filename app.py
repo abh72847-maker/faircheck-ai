@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+import io
 
 from sklearn.model_selection import train_test_split
 from sklearn.linear_model import LogisticRegression
@@ -12,22 +13,27 @@ from fairlearn.metrics import demographic_parity_difference
 from fairlearn.reductions import ExponentiatedGradient
 from fairlearn.reductions import DemographicParity
 
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet
 
-# Page settings
+
+# Page config
 st.set_page_config(
-    page_title="FairCheck AI",
+    page_title="FairCheck AI Dashboard",
     page_icon="⚖️",
     layout="wide"
 )
 
+
 # Title
-st.title("⚖️ FairCheck AI — Smart Bias Detection System")
+st.title("⚖️ FairCheck AI — Bias Detection Dashboard")
 
 st.markdown(
 """
-Upload your dataset and detect unfair bias automatically.
+Detect, analyze, and reduce unfair bias in machine learning datasets.
 """
 )
+
 
 # Sidebar
 st.sidebar.title("⚙️ Settings")
@@ -37,20 +43,77 @@ uploaded_file = st.sidebar.file_uploader(
     type=["csv"]
 )
 
-show_heatmap = st.sidebar.checkbox(
-    "Show Correlation Heatmap"
-)
-
 show_accuracy = st.sidebar.checkbox(
     "Show Model Accuracy"
 )
 
+show_heatmap = st.sidebar.checkbox(
+    "Show Correlation Heatmap"
+)
 
+
+# PDF Report Function
+def create_pdf_report(
+    most_biased_column,
+    before,
+    after,
+    severity
+):
+
+    buffer = io.BytesIO()
+
+    doc = SimpleDocTemplate(buffer)
+
+    styles = getSampleStyleSheet()
+
+    story = []
+
+    title = Paragraph(
+        "FairCheck AI - Bias Detection Report",
+        styles["Title"]
+    )
+
+    story.append(title)
+
+    story.append(Spacer(1, 12))
+
+    content = f"""
+    <b>Most Biased Column:</b> {most_biased_column} <br/><br/>
+
+    <b>Bias Before Mitigation:</b> {before:.3f} <br/><br/>
+
+    <b>Bias After Mitigation:</b> {after:.3f} <br/><br/>
+
+    <b>Bias Severity:</b> {severity} <br/><br/>
+
+    <b>Fairness Score:</b> {1-before:.3f} <br/><br/>
+
+    <b>Recommendations:</b><br/>
+    1. Balance dataset samples.<br/>
+    2. Review sensitive columns.<br/>
+    3. Apply fairness-aware models.<br/>
+    4. Monitor bias regularly.<br/>
+    """
+
+    paragraph = Paragraph(
+        content,
+        styles["BodyText"]
+    )
+
+    story.append(paragraph)
+
+    doc.build(story)
+
+    buffer.seek(0)
+
+    return buffer
+
+
+# Main logic
 if uploaded_file:
 
     data = pd.read_csv(uploaded_file)
 
-    # Dataset preview
     st.subheader("📂 Dataset Preview")
 
     col1, col2 = st.columns(2)
@@ -62,7 +125,7 @@ if uploaded_file:
         st.write("Dataset Shape:", data.shape)
         st.write("Columns:", list(data.columns))
 
-    # Cleaning
+    # Data cleaning
     data = data.dropna()
 
     data = data.apply(
@@ -84,7 +147,7 @@ if uploaded_file:
     X = data.drop(target_column, axis=1)
     y = data[target_column]
 
-    # Train test split
+    # Train-test split
     X_train, X_test, y_train, y_test = train_test_split(
         X,
         y,
@@ -92,7 +155,7 @@ if uploaded_file:
         random_state=42
     )
 
-    # Model
+    # Model training
     model = LogisticRegression(max_iter=1000)
 
     model.fit(X_train, y_train)
@@ -171,43 +234,64 @@ if uploaded_file:
     before = abs(original_bias)
     after = abs(new_bias)
 
-    st.subheader("📉 Bias Comparison")
+    # Dashboard metrics
+    st.subheader("📊 Bias Dashboard")
 
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
+
+    fairness_score = 1 - before
 
     col1.metric(
-        "Before Bias",
-        f"{before:.3f}"
+        "Most Biased Column",
+        most_biased_column
     )
 
     col2.metric(
-        "After Bias",
-        f"{after:.3f}"
+        "Bias Score",
+        f"{before:.3f}"
     )
 
-    # Severity
+    col3.metric(
+        "Fairness Score",
+        f"{fairness_score:.3f}"
+    )
+
+    # Alerts
     if before > 0.3:
-        severity = "🔴 High Bias"
+        st.error("🚨 High Bias Detected — Immediate Action Required!")
+
     elif before > 0.1:
-        severity = "🟡 Medium Bias"
+        st.warning("⚠️ Medium Bias Detected — Monitor Carefully.")
+
     else:
-        severity = "🟢 Low Bias"
+        st.success("✅ Low Bias Detected — System Fair.")
 
-    st.subheader("🚦 Bias Severity")
+    # Top biased columns table
+    st.subheader("📋 Top Biased Columns")
 
-    st.write(severity)
+    bias_df = pd.DataFrame(
+        bias_results.items(),
+        columns=["Column", "Bias Score"]
+    )
 
-    # Visualization
-    st.subheader("📊 Bias Visualization")
+    bias_df = bias_df.sort_values(
+        by="Bias Score",
+        ascending=False
+    )
+
+    st.dataframe(bias_df)
+
+    # Bias chart
+    st.subheader("📈 Bias Distribution")
 
     fig, ax = plt.subplots()
 
-    ax.bar(
-        bias_results.keys(),
-        bias_results.values()
+    ax.barh(
+        bias_df["Column"],
+        bias_df["Bias Score"]
     )
 
-    plt.xticks(rotation=90)
+    ax.set_xlabel("Bias Score")
 
     st.pyplot(fig)
 
@@ -225,256 +309,42 @@ if uploaded_file:
 
         st.pyplot(fig2)
 
-    # Smart Explanation Section
-st.subheader("🧠 Bias Explanation & Recommendations")
+    # Recommendations
+    st.subheader("🧠 Bias Reduction Recommendations")
 
-if after < before:
-    result = "✅ Bias successfully reduced after mitigation."
-else:
-    result = "⚠️ Bias reduction needs improvement."
-
-# Generate explanation
-explanation = f"""
-📊 Bias Analysis Summary
-
-Most Biased Column:
+    recommendation_text = f"""
+Most bias detected in column:
 ➡️ {most_biased_column}
 
-Before Bias Score:
-{before:.3f}
-
-After Bias Score:
-{after:.3f}
-
-Result:
-{result}
-
-🔍 Why Bias Occurs:
-Bias happens when certain groups in data 
-(such as gender, age, or income group) 
-receive unfair outcomes compared to others.
-
-⚠️ Risk Identified:
-Column '{most_biased_column}' shows the highest 
-difference between groups, meaning it may 
-influence unfair predictions.
-
-🛠️ Recommended Actions to Reduce Bias:
+Recommended Actions:
 
 1️⃣ Balance Dataset  
 Add more samples for underrepresented groups.
 
-2️⃣ Review Sensitive Features  
-Check if '{most_biased_column}' should be 
-used in prediction.
+2️⃣ Review Sensitive Feature  
+Check whether '{most_biased_column}'
+should influence predictions.
 
-3️⃣ Apply Fairness Constraints  
-Use fairness-aware models like 
-Demographic Parity (already applied).
+3️⃣ Use Fairness Constraints  
+Apply fairness-aware algorithms.
 
-4️⃣ Monitor Model Regularly  
-Re-check fairness after retraining.
-
-📈 Impact:
-Reducing bias improves fairness, trust, 
-and real-world usability of AI systems.
+4️⃣ Monitor Regularly  
+Re-test fairness after updates.
 """
 
-st.info(explanation)
-    # Download report
-    report_text = f"""
-FairCheck AI Report
+    st.info(recommendation_text)
 
-Most Biased Column: {most_biased_column}
-
-Before Bias: {before}
-After Bias: {after}
-
-Severity: {severity}
-"""
+    # PDF download
+    pdf_file = create_pdf_report(
+        most_biased_column,
+        before,
+        after,
+        severity="Auto-calculated"
+    )
 
     st.download_button(
-        "📥 Download Report",
-        data=report_text,
-        file_name="bias_report.txt"
-    )    # Clean data
-    data = data.dropna()
-
-    # Remove spaces
-    data = data.apply(
-        lambda x: x.str.strip()
-        if x.dtype == "object"
-        else x
-    )
-
-    # Encode text columns
-    le = LabelEncoder()
-
-    for col in data.columns:
-        if data[col].dtype == "object":
-            data[col] = le.fit_transform(data[col])
-
-    # Target column = last column
-    target_column = data.columns[-1]
-
-    X = data.drop(target_column, axis=1)
-    y = data[target_column]
-
-    # Train-test split
-    X_train, X_test, y_train, y_test = train_test_split(
-        X,
-        y,
-        test_size=0.2,
-        random_state=42
-    )
-
-    # Train model
-    model = LogisticRegression(max_iter=1000)
-
-    model.fit(X_train, y_train)
-
-    predictions = model.predict(X_test)
-
-    # Detect bias for all columns
-    bias_results = {}
-
-    for col in X_test.columns:
-
-        try:
-
-            bias = demographic_parity_difference(
-                y_true=y_test,
-                y_pred=predictions,
-                sensitive_features=X_test[col]
-            )
-
-            bias_results[col] = abs(bias)
-
-        except:
-            continue
-
-    # Find most biased column
-    most_biased_column = max(
-        bias_results,
-        key=bias_results.get
-    )
-
-    st.subheader("Most Biased Column")
-
-    st.write(most_biased_column)
-
-    # Bias mitigation
-    mitigator = ExponentiatedGradient(
-        LogisticRegression(max_iter=1000),
-        constraints=DemographicParity()
-    )
-
-    sensitive_column = most_biased_column
-
-    mitigator.fit(
-        X_train,
-        y_train,
-        sensitive_features=X_train[sensitive_column]
-    )
-
-    mitigated_predictions = mitigator.predict(
-        X_test
-    )
-
-    # Compare bias
-    original_bias = demographic_parity_difference(
-        y_true=y_test,
-        y_pred=predictions,
-        sensitive_features=X_test[sensitive_column]
-    )
-
-    new_bias = demographic_parity_difference(
-        y_true=y_test,
-        y_pred=mitigated_predictions,
-        sensitive_features=X_test[sensitive_column]
-    )
-
-    before = abs(original_bias)
-    after = abs(new_bias)
-
-    st.subheader("Bias Comparison")
-
-    st.write("Before Bias:", before)
-    st.write("After Bias:", after)
-
-    # Bias severity
-    if before > 0.3:
-        severity = "🔴 High Bias"
-    elif before > 0.1:
-        severity = "🟡 Medium Bias"
-    else:
-        severity = "🟢 Low Bias"
-
-    st.subheader("Bias Severity")
-
-    st.write(severity)
-
-    # Visualization
-    st.subheader("Bias Visualization")
-
-    fig, ax = plt.subplots()
-
-    ax.bar(
-        bias_results.keys(),
-        bias_results.values()
-    )
-
-    plt.xticks(rotation=90)
-
-    st.pyplot(fig)
-
-    # Explanation
-    st.subheader("AI Explanation")
-
-    if after < before:
-        result = "Bias was successfully reduced."
-    else:
-        result = "Bias reduction needs improvement."
-
-    explanation = f"""
-📊 Bias Explanation
-
-Before Bias: {before}
-After Bias: {after}
-
-Result:
-{result}
-
-Why Bias Matters:
-AI systems with bias may unfairly
-treat certain groups.
-
-Suggested Improvements:
-• Balance dataset
-• Monitor sensitive features
-• Retrain models regularly
-"""
-
-    st.write(explanation)
-
-    # Download report
-    report_text = f"""
-Bias Report
-
-Most Biased Column: {most_biased_column}
-
-Before Bias: {before}
-After Bias: {after}
-
-Bias Severity: {severity}
-
-Explanation:
-{result}
-"""
-
-    st.download_button(
-        label="📥 Download Bias Report",
-        data=report_text,
-        file_name="bias_report.txt",
-        mime="text/plain"
+        label="📄 Download Full PDF Report",
+        data=pdf_file,
+        file_name="FairCheck_Bias_Report.pdf",
+        mime="application/pdf"
     )
