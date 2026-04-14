@@ -1,6 +1,7 @@
-streamlit
-pandas
-scikit-learn
-fairlearn
-matplotlib
-seaborn
+streamlit==1.35.0
+pandas==2.2.2
+numpy==1.26.4
+scikit-learn==1.4.2
+fairlearn==0.10.0
+matplotlib==3.8.4
+seaborn==0.13.2
