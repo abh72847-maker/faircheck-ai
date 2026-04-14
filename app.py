@@ -225,28 +225,62 @@ if uploaded_file:
 
         st.pyplot(fig2)
 
-    # Explanation
-    st.subheader("🧠 AI Explanation")
+    # Smart Explanation Section
+st.subheader("🧠 Bias Explanation & Recommendations")
 
-    if after < before:
-        result = "Bias successfully reduced."
-    else:
-        result = "Bias reduction needs improvement."
+if after < before:
+    result = "✅ Bias successfully reduced after mitigation."
+else:
+    result = "⚠️ Bias reduction needs improvement."
 
-    explanation = f"""
-Bias reduced from {before:.3f} to {after:.3f}.
+# Generate explanation
+explanation = f"""
+📊 Bias Analysis Summary
 
-Why it matters:
-Biased AI can create unfair decisions.
+Most Biased Column:
+➡️ {most_biased_column}
 
-Suggested improvements:
-• Balance dataset
-• Monitor sensitive columns
-• Retrain models regularly
+Before Bias Score:
+{before:.3f}
+
+After Bias Score:
+{after:.3f}
+
+Result:
+{result}
+
+🔍 Why Bias Occurs:
+Bias happens when certain groups in data 
+(such as gender, age, or income group) 
+receive unfair outcomes compared to others.
+
+⚠️ Risk Identified:
+Column '{most_biased_column}' shows the highest 
+difference between groups, meaning it may 
+influence unfair predictions.
+
+🛠️ Recommended Actions to Reduce Bias:
+
+1️⃣ Balance Dataset  
+Add more samples for underrepresented groups.
+
+2️⃣ Review Sensitive Features  
+Check if '{most_biased_column}' should be 
+used in prediction.
+
+3️⃣ Apply Fairness Constraints  
+Use fairness-aware models like 
+Demographic Parity (already applied).
+
+4️⃣ Monitor Model Regularly  
+Re-check fairness after retraining.
+
+📈 Impact:
+Reducing bias improves fairness, trust, 
+and real-world usability of AI systems.
 """
 
-    st.info(explanation)
-
+st.info(explanation)
     # Download report
     report_text = f"""
 FairCheck AI Report
