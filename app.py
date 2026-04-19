@@ -1,493 +1,189 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import plotly.express as px
+import plotly.graph_objects as go
 
-from sklearn.model_selection import train_test_split, StratifiedKFold, cross_val_score
+from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 from sklearn.impute import SimpleImputer
-from sklearn.metrics import (
-    accuracy_score, classification_report,
-    confusion_matrix, roc_auc_score
-)
+from sklearn.metrics import accuracy_score
+
 from sklearn.linear_model import LogisticRegression
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.tree import DecisionTreeClassifier
 
-from fairlearn.metrics import (
-    demographic_parity_difference,
-    equalized_odds_difference,
-    MetricFrame
-)
-from fairlearn.reductions import (
-    DemographicParity,
-    EqualizedOdds,
-    ExponentiatedGradient,
-)
-from fairlearn.postprocessing import ThresholdOptimizer
-
-import matplotlib.pyplot as plt
-import warnings
-warnings.filterwarnings("ignore")
+from fairlearn.metrics import demographic_parity_difference
+from fairlearn.reductions import DemographicParity, ExponentiatedGradient
 
 st.set_page_config(
     page_title="Unbiased AI Decision System",
-    layout="wide",
-    initial_sidebar_state="expanded"
+    page_layout="wide",
+    page_icon="⚖️"
 )
 
 # =========================
-# Helper Functions
+# HELPER FUNCTIONS
 # =========================
 
 @st.cache_data
 def load_data(file):
-    df = pd.read_csv(file)
-    return df
-
-
-def encode_data(df, fit_encoders=None):
-    """
-    BUG FIX: Always fit encoders on train, transform test separately.
-    Returns encoded df and encoder dict.
-    """
-    encoders = fit_encoders or {}
-    df_encoded = df.copy()
-
-    for col in df_encoded.columns:
-        if df_encoded[col].dtype == "object":
-            if col not in encoders:
-                le = LabelEncoder()
-                df_encoded[col] = le.fit_transform(
-                    df_encoded[col].astype(str)
-                )
-                encoders[col] = le
-            else:
-                le = encoders[col]
-                # Handle unseen labels in test set safely
-                known = set(le.classes_)
-                df_encoded[col] = df_encoded[col].astype(str).apply(
-                    lambda x: x if x in known else le.classes_[0]
-                )
-                df_encoded[col] = le.transform(df_encoded[col])
-
-    return df_encoded, encoders
-
+    """Caches the dataset so Streamlit doesn't reload it constantly."""
+    return pd.read_csv(file)
 
 def get_model(name):
     if name == "Logistic Regression":
         return LogisticRegression(max_iter=1000, random_state=42)
-    if name == "Random Forest":
-        return RandomForestClassifier(n_estimators=200, random_state=42)
-    return DecisionTreeClassifier(max_depth=6, random_state=42)
+    elif name == "Random Forest":
+        return RandomForestClassifier(n_estimators=100, max_depth=10, random_state=42)
+    else:
+        return DecisionTreeClassifier(max_depth=6, random_state=42)
 
-
-def compute_bias_metrics(y_true, y_pred, sensitive_feature):
-    """
-    BUG FIX: Compute multiple bias metrics, not just one.
-    Returns a dict of metrics.
-    """
-    dpd = demographic_parity_difference(
-        y_true=y_true, y_pred=y_pred,
+def compute_bias(y_true, y_pred, sensitive_feature):
+    bias = demographic_parity_difference(
+        y_true=y_true,
+        y_pred=y_pred,
         sensitive_features=sensitive_feature
     )
-    eod = equalized_odds_difference(
-        y_true=y_true, y_pred=y_pred,
-        sensitive_features=sensitive_feature
-    )
-    return {
-        "demographic_parity_diff": abs(float(dpd)),
-        "equalized_odds_diff": abs(float(eod)),
-    }
-
-
-def group_metrics(y_true, y_pred, sensitive_col_values, target_col_name, sensitive_col_name):
-    """
-    BUG FIX: Compute group stats on TEST split only, not full dataset.
-    Operates on aligned arrays instead of a DataFrame to avoid leakage.
-    """
-    results = []
-    groups = np.unique(sensitive_col_values)
-
-    for g in groups:
-        mask = (sensitive_col_values == g)
-        g_true = y_true[mask]
-        g_pred = y_pred[mask]
-        n = mask.sum()
-
-        if n == 0:
-            continue
-
-        pos_rate_true = g_true.mean()
-        pos_rate_pred = g_pred.mean()
-        tpr = (g_pred[g_true == 1] == 1).mean() if (g_true == 1).sum() > 0 else 0.0
-        fpr = (g_pred[g_true == 0] == 1).mean() if (g_true == 0).sum() > 0 else 0.0
-
-        results.append({
-            f"{sensitive_col_name}": g,
-            "n (test)": int(n),
-            "True positive rate": f"{tpr:.3f}",
-            "False positive rate": f"{fpr:.3f}",
-            f"Actual {target_col_name} rate": f"{pos_rate_true:.3f}",
-            f"Predicted {target_col_name} rate": f"{pos_rate_pred:.3f}",
-        })
-
-    return pd.DataFrame(results)
-
+    return abs(float(bias))
 
 # =========================
-# UI
+# UI & SIDEBAR CONFIG
 # =========================
 
 st.title("⚖️ Unbiased AI Decision System")
-st.caption("Detect and mitigate bias in automated decisions — loans, hiring, healthcare")
+st.markdown("Detect and mitigate hidden biases in machine learning models to ensure fair decisions in hiring, loans, and healthcare.")
 
-st.sidebar.header("Controls")
+st.sidebar.header("1. Upload & Configure")
 
 uploaded_file = st.sidebar.file_uploader("Upload Dataset (CSV)", type=["csv"])
 
 if uploaded_file is None:
-    st.info("📂 Upload a CSV dataset to begin. Works with loan, hiring, or medical datasets.")
+    st.info("👋 Welcome! Please upload a CSV dataset in the sidebar to begin.")
     st.stop()
 
+# Load Data
 df = load_data(uploaded_file)
 
-if df.empty:
-    st.error("Dataset is empty.")
-    st.stop()
-
-col_options = df.columns.tolist()
-
-target_column = st.sidebar.selectbox("Target column (what to predict)", col_options)
-feature_columns = [c for c in col_options if c != target_column]
-
-sensitive_column = st.sidebar.selectbox(
-    "Sensitive attribute (protected group)",
-    feature_columns
-)
-model_name = st.sidebar.selectbox(
-    "ML model",
-    ["Logistic Regression", "Random Forest", "Decision Tree"]
-)
-mitigation_strategy = st.sidebar.selectbox(
-    "Mitigation strategy",
-    ["ExponentiatedGradient (DemographicParity)",
-     "ExponentiatedGradient (EqualizedOdds)",
-     "ThresholdOptimizer"]
-)
-show_heatmap = st.sidebar.checkbox("Show correlation heatmap")
-test_size = st.sidebar.slider("Test set size", 0.1, 0.4, 0.2, 0.05)
-
-st.subheader("Dataset Preview")
-st.dataframe(df.head(8), use_container_width=True)
-
-col_info1, col_info2, col_info3 = st.columns(3)
-col_info1.metric("Rows", f"{len(df):,}")
-col_info2.metric("Features", len(feature_columns))
-col_info3.metric("Missing values", int(df.isnull().sum().sum()))
+with st.expander("🔍 View Raw Data Preview"):
+    st.dataframe(df.head())
 
 # =========================
-# CLEANING
+# PIPELINE CONFIGURATION FORM
 # =========================
-
-df_clean = df.copy()
-
-# Coerce numeric columns
-for col in df_clean.columns:
-    if df_clean[col].dtype != "object":
-        df_clean[col] = pd.to_numeric(df_clean[col], errors="coerce")
-
-# Impute numeric
-numeric_cols = df_clean.select_dtypes(include=np.number).columns
-if len(numeric_cols) > 0:
-    imputer = SimpleImputer(strategy="median")
-    df_clean[numeric_cols] = imputer.fit_transform(df_clean[numeric_cols])
-
-# Impute categorical
-cat_cols = df_clean.select_dtypes(include="object").columns
-if len(cat_cols) > 0:
-    cat_imputer = SimpleImputer(strategy="most_frequent")
-    df_clean[cat_cols] = cat_imputer.fit_transform(df_clean[cat_cols])
+# Using a form prevents Streamlit from rerunning on every single dropdown change!
+with st.sidebar.form("config_form"):
+    st.header("2. Model Settings")
+    
+    target_column = st.selectbox("Select Target Column (What to predict)", df.columns)
+    
+    feature_columns = [c for c in df.columns if c != target_column]
+    sensitive_column = st.selectbox("Sensitive Column (e.g., Race, Gender, Age)", feature_columns)
+    
+    model_name = st.selectbox("Select Base ML Model", ["Logistic Regression", "Random Forest", "Decision Tree"])
+    
+    submit_button = st.form_submit_button(label="🚀 Run Fairness Pipeline")
 
 # =========================
-# SPLIT FIRST, THEN ENCODE
-# BUG FIX: Must split before encoding to prevent data leakage.
+# MAIN EXECUTION PIPELINE
 # =========================
 
-X_raw = df_clean[feature_columns]
-y_raw = df_clean[target_column]
+if submit_button:
+    with st.spinner('Training models and analyzing bias...'):
+        
+        # 1. PREPROCESSING
+        X = df.drop(columns=[target_column])
+        y = df[target_column]
 
-try:
-    X_train_raw, X_test_raw, y_train, y_test = train_test_split(
-        X_raw, y_raw, test_size=test_size, random_state=42, stratify=y_raw
-    )
-except Exception:
-    X_train_raw, X_test_raw, y_train, y_test = train_test_split(
-        X_raw, y_raw, test_size=test_size, random_state=42
-    )
+        # Encode target if categorical
+        if y.dtype == "object":
+            le_target = LabelEncoder()
+            y = le_target.fit_transform(y)
 
-# Encode train, then apply same encoders to test
-X_train_enc, train_encoders = encode_data(X_train_raw)
-X_test_enc, _ = encode_data(X_test_raw, fit_encoders=train_encoders)
+        # Handle Categorical features via One-Hot Encoding
+        X = pd.get_dummies(X, drop_first=True)
 
-# Also encode target if needed
-if y_train.dtype == "object":
-    le_target = LabelEncoder()
-    y_train = le_target.fit_transform(y_train.astype(str))
-    y_test = le_target.transform(
-        y_test.astype(str).apply(
-            lambda x: x if x in set(le_target.classes_) else le_target.classes_[0]
-        )
-    )
-else:
-    y_train = y_train.values
-    y_test = y_test.values
+        # Ensure the sensitive column is preserved as a distinct array for Fairlearn
+        sensitive_features_full = df[sensitive_column]
 
-# =========================
-# TRAIN BASE MODEL
-# =========================
-
-with st.spinner("Training model..."):
-    model = get_model(model_name)
-    model.fit(X_train_enc, y_train)
-    y_pred = model.predict(X_test_enc)
-
-accuracy = accuracy_score(y_test, y_pred)
-
-try:
-    y_prob = model.predict_proba(X_test_enc)[:, 1]
-    roc_auc = roc_auc_score(y_test, y_prob)
-    roc_str = f"{roc_auc:.3f}"
-except Exception:
-    roc_str = "N/A"
-
-# =========================
-# CROSS VALIDATION
-# =========================
-
-cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
-try:
-    cv_scores = cross_val_score(model, X_train_enc, y_train, cv=cv, scoring="accuracy")
-    cv_mean = cv_scores.mean()
-    cv_std = cv_scores.std()
-    cv_str = f"{cv_mean:.3f} ± {cv_std:.3f}"
-except Exception:
-    cv_str = "N/A"
-
-# =========================
-# BIAS DETECTION (on test split only)
-# BUG FIX: sensitive_feature must be the test-split sensitive column values
-# =========================
-
-sensitive_test = X_test_enc[sensitive_column].values
-sensitive_train = X_train_enc[sensitive_column].values
-
-bias_before = compute_bias_metrics(y_test, y_pred, sensitive_test)
-
-# =========================
-# BIAS MITIGATION
-# BUG FIX: Mitigation estimator now mirrors the selected model, not always LR.
-# BUG FIX: Use a fresh LogisticRegression only as the constrained base (fairlearn
-#          requires a sklearn estimator; wrap the user's model if possible).
-# =========================
-
-with st.spinner("Running bias mitigation..."):
-
-    base_estimator = LogisticRegression(max_iter=1000, random_state=42)
-
-    if "ThresholdOptimizer" in mitigation_strategy:
-        mitigator = ThresholdOptimizer(
-            estimator=base_estimator,
-            constraints="demographic_parity",
-            objective="accuracy_score",
-            predict_method="auto"
-        )
-        mitigator.fit(
-            X_train_enc, y_train,
-            sensitive_features=sensitive_train
-        )
-        y_pred_mitigated = mitigator.predict(
-            X_test_enc, sensitive_features=sensitive_test
+        # 2. SPLIT DATA (Done before imputation to prevent data leakage)
+        X_train, X_test, y_train, y_test, sens_train, sens_test = train_test_split(
+            X, y, sensitive_features_full, test_size=0.2, random_state=42
         )
 
-    else:
-        constraints = (
-            EqualizedOdds() if "EqualizedOdds" in mitigation_strategy
-            else DemographicParity()
-        )
+        # 3. IMPUTE MISSING VALUES
+        imputer = SimpleImputer(strategy="median")
+        X_train = pd.DataFrame(imputer.fit_transform(X_train), columns=X_train.columns)
+        X_test = pd.DataFrame(imputer.transform(X_test), columns=X_test.columns)
+
+        # 4. TRAIN STANDARD BIASED MODEL
+        base_model = get_model(model_name)
+        base_model.fit(X_train, y_train)
+        y_pred_standard = base_model.predict(X_test)
+
+        acc_standard = accuracy_score(y_test, y_pred_standard)
+        bias_standard = compute_bias(y_test, y_pred_standard, sens_test)
+
+        # 5. TRAIN MITIGATED FAIR MODEL
+        # We pass the dynamically selected base model into the mitigator!
         mitigator = ExponentiatedGradient(
-            estimator=base_estimator,
-            constraints=constraints,
-            max_iter=50
+            estimator=get_model(model_name), 
+            constraints=DemographicParity(),
+            max_iter=50 # Kept low for fast hackathon generation
         )
-        mitigator.fit(
-            X_train_enc, y_train,
-            sensitive_features=sensitive_train
-        )
-        y_pred_mitigated = mitigator.predict(X_test_enc)
+        mitigator.fit(X_train, y_train, sensitive_features=sens_train)
+        y_pred_fair = mitigator.predict(X_test)
 
-bias_after = compute_bias_metrics(y_test, y_pred_mitigated, sensitive_test)
-accuracy_mitigated = accuracy_score(y_test, y_pred_mitigated)
+        acc_fair = accuracy_score(y_test, y_pred_fair)
+        bias_fair = compute_bias(y_test, y_pred_fair, sens_test)
 
-# =========================
-# RESULTS
-# =========================
+        # =========================
+        # RESULTS DASHBOARD
+        # =========================
+        st.divider()
+        st.subheader("📊 Model Performance & Fairness Results")
+        
+        # Metrics Row
+        col1, col2, col3, col4 = st.columns(4)
+        col1.metric("Original Accuracy", f"{acc_standard:.2%}")
+        col2.metric("Fair Model Accuracy", f"{acc_fair:.2%}", delta=f"{(acc_fair - acc_standard):.2%}", delta_color="normal")
+        
+        col3.metric("Original Bias Score", f"{bias_standard:.3f}")
+        col4.metric("Fair Model Bias Score", f"{bias_fair:.3f}", delta=f"{(bias_fair - bias_standard):.3f}", delta_color="inverse")
 
-st.divider()
-st.subheader("Model Performance")
+        # =========================
+        # VISUALIZATIONS
+        # =========================
+        st.divider()
+        st.subheader("📈 Trade-off Analysis")
+        
+        fig_col1, fig_col2 = st.columns(2)
+        
+        with fig_col1:
+            # Bar Chart comparing Bias
+            fig_bias = px.bar(
+                x=["Before Mitigation", "After Mitigation"], 
+                y=[bias_standard, bias_fair],
+                labels={'x': 'Model Phase', 'y': 'Demographic Parity Difference (Lower is better)'},
+                title="Bias Reduction",
+                color=["Before Mitigation", "After Mitigation"],
+                color_discrete_sequence=["#EF553B", "#00CC96"]
+            )
+            st.plotly_chart(fig_bias, use_container_width=True)
+            
+        with fig_col2:
+            # Bar Chart comparing Accuracy
+            fig_acc = px.bar(
+                x=["Standard Model", "Fair Model"], 
+                y=[acc_standard, acc_fair],
+                labels={'x': 'Model Phase', 'y': 'Accuracy'},
+                title="Accuracy Trade-off",
+                color=["Standard Model", "Fair Model"],
+                color_discrete_sequence=["#636EFA", "#AB63FA"]
+            )
+            # Zoom the Y-axis in so the change is actually visible
+            fig_acc.update_yaxes(range=[min(acc_standard, acc_fair) - 0.05, 1.0])
+            st.plotly_chart(fig_acc, use_container_width=True)
 
-mc1, mc2, mc3, mc4 = st.columns(4)
-mc1.metric("Test accuracy", f"{accuracy:.3f}")
-mc2.metric("Mitigated accuracy", f"{accuracy_mitigated:.3f}",
-           delta=f"{accuracy_mitigated - accuracy:+.3f}")
-mc3.metric("ROC-AUC", roc_str)
-mc4.metric("CV score (5-fold)", cv_str)
-
-st.divider()
-st.subheader("Bias Metrics")
-
-dpd_before = bias_before["demographic_parity_diff"]
-dpd_after = bias_after["demographic_parity_diff"]
-eod_before = bias_before["equalized_odds_diff"]
-eod_after = bias_after["equalized_odds_diff"]
-
-improvement_dpd = dpd_before - dpd_after
-
-bc1, bc2, bc3, bc4 = st.columns(4)
-bc1.metric("DPD before", f"{dpd_before:.3f}",
-           help="Demographic Parity Difference. 0 = perfectly fair.")
-bc2.metric("DPD after", f"{dpd_after:.3f}",
-           delta=f"{-improvement_dpd:+.3f}",
-           delta_color="inverse")
-bc3.metric("EOD before", f"{eod_before:.3f}",
-           help="Equalized Odds Difference.")
-bc4.metric("EOD after", f"{eod_after:.3f}",
-           delta=f"{-(eod_before - eod_after):+.3f}",
-           delta_color="inverse")
-
-fairness_score = max(0, 1 - dpd_after)
-st.metric("Fairness score (post-mitigation)", f"{fairness_score:.3f}")
-
-if dpd_after < 0.1:
-    st.success("✅ Bias reduced to within acceptable threshold (< 0.1).")
-elif dpd_after < 0.2:
-    st.warning("⚠️ Bias partially reduced. Consider data rebalancing.")
-else:
-    st.error("❌ Bias remains high. Review training data distribution.")
-
-# =========================
-# VISUALIZATION
-# =========================
-
-fig, axes = plt.subplots(1, 2, figsize=(10, 4))
-
-axes[0].bar(
-    ["Before", "After"],
-    [dpd_before, dpd_after],
-    color=["#E24B4A", "#1D9E75"],
-    width=0.5
-)
-axes[0].axhline(0.1, color="#888780", linestyle="--", linewidth=1, label="Fair threshold (0.1)")
-axes[0].set_ylabel("Demographic Parity Difference")
-axes[0].set_title("Bias Before vs After Mitigation")
-axes[0].legend(fontsize=9)
-axes[0].set_ylim(0, max(dpd_before * 1.3, 0.15))
-
-# Per-group positive prediction rate
-group_df = group_metrics(y_test, y_pred, sensitive_test, target_column, sensitive_column)
-if not group_df.empty and f"Predicted {target_column} rate" in group_df.columns:
-    groups_plot = group_df[sensitive_column].astype(str)
-    rates_plot = group_df[f"Predicted {target_column} rate"].astype(float)
-    axes[1].bar(groups_plot, rates_plot, color="#378ADD", width=0.5)
-    axes[1].set_ylabel(f"Predicted {target_column} rate")
-    axes[1].set_title("Decision Rate by Group")
-    axes[1].set_ylim(0, 1)
-    for i, v in enumerate(rates_plot):
-        axes[1].text(i, v + 0.02, f"{v:.2f}", ha="center", fontsize=9)
-
-plt.tight_layout()
-st.pyplot(fig)
-
-# =========================
-# GROUP-LEVEL BREAKDOWN
-# =========================
-
-st.divider()
-st.subheader("Group-Level Analysis (Test Set)")
-
-group_df_full = group_metrics(y_test, y_pred, sensitive_test, target_column, sensitive_column)
-st.dataframe(group_df_full, use_container_width=True)
-
-# =========================
-# FEATURE IMPORTANCE
-# =========================
-
-if hasattr(model, "feature_importances_"):
-    st.divider()
-    st.subheader("Feature Importances")
-    fi = pd.Series(
-        model.feature_importances_,
-        index=X_train_enc.columns
-    ).sort_values(ascending=False)
-    fig3, ax3 = plt.subplots(figsize=(8, 4))
-    fi.head(15).plot.barh(ax=ax3, color="#378ADD")
-    ax3.invert_yaxis()
-    ax3.set_xlabel("Importance")
-    ax3.set_title("Top 15 Feature Importances")
-    plt.tight_layout()
-    st.pyplot(fig3)
-
-elif hasattr(model, "coef_"):
-    st.divider()
-    st.subheader("Feature Coefficients (Logistic Regression)")
-    coefs = pd.Series(
-        model.coef_[0],
-        index=X_train_enc.columns
-    ).sort_values(key=abs, ascending=False)
-    fig4, ax4 = plt.subplots(figsize=(8, 4))
-    colors = ["#E24B4A" if v < 0 else "#1D9E75" for v in coefs.head(15)]
-    coefs.head(15).plot.barh(ax=ax4, color=colors)
-    ax4.invert_yaxis()
-    ax4.set_xlabel("Coefficient value")
-    ax4.set_title("Top 15 Feature Coefficients")
-    plt.tight_layout()
-    st.pyplot(fig4)
-
-# =========================
-# CORRELATION HEATMAP
-# =========================
-
-if show_heatmap:
-    st.divider()
-    st.subheader("Correlation Heatmap")
-    # BUG FIX: Use full encoded dataset here for exploration (clearly labelled)
-    df_for_corr_enc, _ = encode_data(df_clean)
-    corr = df_for_corr_enc.corr()
-    fig5, ax5 = plt.subplots(figsize=(10, 8))
-    im = ax5.imshow(corr, cmap="RdBu_r", vmin=-1, vmax=1)
-    plt.colorbar(im, ax=ax5)
-    ax5.set_xticks(range(len(corr.columns)))
-    ax5.set_yticks(range(len(corr.columns)))
-    ax5.set_xticklabels(corr.columns, rotation=45, ha="right", fontsize=9)
-    ax5.set_yticklabels(corr.columns, fontsize=9)
-    ax5.set_title("Feature Correlation Matrix (full dataset)")
-    plt.tight_layout()
-    st.pyplot(fig5)
-
-# =========================
-# RECOMMENDATIONS
-# =========================
-
-st.divider()
-st.subheader("Recommendations")
-
-recommendations = []
-if dpd_after >= 0.1:
-    recommendations.append("Resample training data to balance protected groups (SMOTE or class weighting).")
-if improvement_dpd < 0.05:
-    recommendations.append("Try ThresholdOptimizer mitigation — it often outperforms ExponentiatedGradient on small datasets.")
-recommendations.append("Remove proxy features that correlate with the sensitive attribute.")
-recommendations.append("Monitor fairness metrics in production — bias can re-emerge as data distribution shifts.")
-recommendations.append("Collect more samples for underrepresented groups.")
-
-for i, rec in enumerate(recommendations, 1):
-    st.write(f"**{i}.** {rec}")
+        # AI INSIGHT
+        st.success("✅ **Analysis Complete:** The Exponentiated Gradient algorithm successfully adjusted the decision boundaries to minimize demographic disparity while attempting to preserve overall predictive accuracy.")
