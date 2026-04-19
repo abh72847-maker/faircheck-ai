@@ -6,3 +6,4 @@ fairlearn==0.10.0
 matplotlib==3.8.4
 seaborn==0.13.2
 reportlab==4.0.9
+plotly==5.22.0
